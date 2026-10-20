@@ -9,10 +9,15 @@ var brokers: Array[Dictionary] = []
 var beacons: Array[Dictionary] = []
 var demo_mode := false
 var vertical_exaggeration := 2.0
+## How sharp map imagery is; higher detail downloads more tiles. See TerrainMap.TILE_PX.
+var map_detail := MapDetail.HIGH
 ## IATA codes to ignore, comma-separated; `*` and `?` wildcards allowed (e.g. "Y*").
 var excluded_iatas := DEFAULT_EXCLUDED_IATAS
 
 const DEFAULT_EXCLUDED_IATAS := "MCI,CAK,MCO,Y*"
+
+## STANDARD loads the same tiles whatever the screen size; HIGH and ULTRA scale with screen pixels.
+enum MapDetail { STANDARD, HIGH, ULTRA }
 
 
 func _ready() -> void:
@@ -29,6 +34,7 @@ func load_config() -> void:
 	beacons.assign(cfg.get_value("sources", "beacons", [default_beacon()]))
 	demo_mode = cfg.get_value("app", "demo_mode", false)
 	vertical_exaggeration = cfg.get_value("view", "vertical_exaggeration", 2.0)
+	map_detail = clampi(cfg.get_value("view", "map_detail", MapDetail.HIGH), MapDetail.STANDARD, MapDetail.ULTRA) as MapDetail
 	excluded_iatas = cfg.get_value("filters", "excluded_iatas", DEFAULT_EXCLUDED_IATAS)
 
 
@@ -38,6 +44,7 @@ func save_config() -> void:
 	cfg.set_value("sources", "beacons", beacons)
 	cfg.set_value("app", "demo_mode", demo_mode)
 	cfg.set_value("view", "vertical_exaggeration", vertical_exaggeration)
+	cfg.set_value("view", "map_detail", map_detail)
 	cfg.set_value("filters", "excluded_iatas", excluded_iatas)
 	var err := cfg.save(CONFIG_PATH)
 	if err != OK:

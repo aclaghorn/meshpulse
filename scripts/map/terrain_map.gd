@@ -4,7 +4,13 @@ extends Node3D
 
 const GRID := 32
 const LEVELS := 4
-const RADIUS := 3
+## Tiles each side of the centre tile, per level. Grows with the screen so wide views stay covered.
+const MIN_RADIUS := 3
+const MAX_RADIUS := 6
+## Finest-level tiles across the screen at STANDARD detail, whatever its size.
+const STANDARD_TILES_ACROSS := 2.5
+## Screen pixels one finest-level tile spans at HIGH and ULTRA detail (imagery tiles are 256 px).
+const TILE_PX := {AppConfig.MapDetail.HIGH: 640.0, AppConfig.MapDetail.ULTRA: 400.0}
 const MIN_ZOOM := 2
 const MAX_ZOOM := 18
 const UPDATE_INTERVAL := 0.15
@@ -47,11 +53,18 @@ func _update_tiles() -> void:
 	var cam := get_viewport().get_camera_3d() as MapCamera
 	if cam == null:
 		return
-	var vp := get_viewport().get_visible_rect().size
-	var aspect := maxf(1.0, vp.x / maxf(vp.y, 1.0))
+	# Real render pixels: the stretched logical size stays ~1600 wide on any screen.
+	var px := Vector2(get_viewport().size)
+	var aspect := maxf(1.0, px.x / maxf(px.y, 1.0))
 	var view_km := 2.0 * cam.distance * tan(deg_to_rad(cam.fov) * 0.5) * aspect
 	var world_km := 2.0 * Geo.ORIGIN_SHIFT * Geo.km_per_mercator_m
-	base_zoom = clampi(roundi(log(world_km * 2.5 / view_km) / log(2.0)), MIN_ZOOM, MAX_ZOOM)
+	var tiles_across := STANDARD_TILES_ACROSS
+	if AppConfig.map_detail != AppConfig.MapDetail.STANDARD:
+		tiles_across = px.x / TILE_PX[AppConfig.map_detail]
+	# Never ask for more tiles than the largest ring can cover.
+	tiles_across = clampf(tiles_across, STANDARD_TILES_ACROSS, 2.0 * (MAX_RADIUS - 2))
+	var radius := clampi(ceili(tiles_across * 0.5 + 1.75), MIN_RADIUS, MAX_RADIUS)
+	base_zoom = clampi(roundi(log(world_km * tiles_across / view_km) / log(2.0)), MIN_ZOOM, MAX_ZOOM)
 
 	var center := Geo.world_to_mercator(cam.target.x, cam.target.z)
 	var wanted := {}  # key -> level
@@ -64,8 +77,8 @@ func _update_tiles() -> void:
 			break
 		var n := 1 << z
 		var c := Geo.mercator_to_tile(center.x, center.y, z)
-		for dy in range(-RADIUS, RADIUS + 1):
-			for dx in range(-RADIUS, RADIUS + 1):
+		for dy in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
 				var tx := int(c.x) + dx
 				var ty := int(c.y) + dy
 				if tx < 0 or ty < 0 or tx >= n or ty >= n:

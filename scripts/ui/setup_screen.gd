@@ -8,6 +8,7 @@ var _broker_list: VBoxContainer
 var _beacon_list: VBoxContainer
 var _demo_check: CheckBox
 var _exaggeration: SpinBox
+var _map_detail: OptionButton
 var _excluded_iatas: LineEdit
 var _status: Label
 var _apply_button: Button
@@ -90,6 +91,19 @@ func _build() -> void:
 	_exaggeration.suffix = "×"
 	_exaggeration.value = AppConfig.vertical_exaggeration
 	exaggeration_row.add_child(_exaggeration)
+	var detail_row := HBoxContainer.new()
+	detail_row.add_theme_constant_override("separation", 10)
+	options.add_child(detail_row)
+	var detail_label := UiTheme.label("Map detail", 15, UiTheme.MUTED)
+	detail_label.size_flags_vertical = SIZE_SHRINK_CENTER
+	detail_row.add_child(detail_label)
+	_map_detail = OptionButton.new()
+	_map_detail.add_item("Standard", AppConfig.MapDetail.STANDARD)
+	_map_detail.add_item("High", AppConfig.MapDetail.HIGH)
+	_map_detail.add_item("Ultra", AppConfig.MapDetail.ULTRA)
+	_map_detail.select(_map_detail.get_item_index(AppConfig.map_detail))
+	_map_detail.tooltip_text = "Sharpness of the satellite imagery. High and Ultra load finer tiles on larger or high-DPI screens, which downloads more data."
+	detail_row.add_child(_map_detail)
 	var exclude_row := HBoxContainer.new()
 	exclude_row.add_theme_constant_override("separation", 10)
 	options.add_child(exclude_row)
@@ -254,6 +268,7 @@ func _apply() -> void:
 	AppConfig.beacons = _collect(_beacon_list)
 	AppConfig.demo_mode = _demo_check.button_pressed
 	AppConfig.vertical_exaggeration = _exaggeration.value
+	AppConfig.map_detail = _map_detail.get_selected_id() as AppConfig.MapDetail
 	AppConfig.excluded_iatas = _excluded_iatas.text.strip_edges()
 
 	var problems: Array[String] = []
