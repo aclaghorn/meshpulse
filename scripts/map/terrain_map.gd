@@ -60,7 +60,8 @@ func _update_tiles() -> void:
 	var world_km := 2.0 * Geo.ORIGIN_SHIFT * Geo.km_per_mercator_m
 	var tiles_across := STANDARD_TILES_ACROSS
 	if AppConfig.map_detail != AppConfig.MapDetail.STANDARD:
-		tiles_across = px.x / TILE_PX[AppConfig.map_detail]
+		# view_km spans the longer side (fov is vertical, aspect clamped to >= 1), so match it.
+		tiles_across = maxf(px.x, px.y) / TILE_PX[AppConfig.map_detail]
 	# Never ask for more tiles than the largest ring can cover.
 	tiles_across = clampf(tiles_across, STANDARD_TILES_ACROSS, 2.0 * (MAX_RADIUS - 2))
 	var radius := clampi(ceili(tiles_across * 0.5 + 1.75), MIN_RADIUS, MAX_RADIUS)
