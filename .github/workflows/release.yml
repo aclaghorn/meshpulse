@@ -1,0 +1,152 @@
+name: Release
+
+# Builds every platform, tags the commit and publishes a GitHub release.
+#   - Push a tag:     git tag v0.2.0 && git push origin v0.2.0
+#   - Or run it from the Actions tab with a version; the workflow creates the tag.
+# Versions with a suffix (0.2.0-beta.1) are published as pre-releases.
+#
+# Android is debug-signed unless these repository secrets are set for a release keystore:
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_USER, ANDROID_KEYSTORE_PASSWORD
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 0.2.0 (tagged as v0.2.0)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: "4.7.2"
+  GODOT_RELEASE: "4.7.2-stable"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$EVENT" = "push" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${INPUT_VERSION#v}"
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" >/dev/null 2>&1; then
+              echo "::error::Tag v$version already exists"
+              exit 1
+            fi
+          fi
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$version' is not a semver version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Godot and export templates
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_RELEASE }}-templates-v1
+
+      - name: Install Godot and export templates
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/$GODOT_RELEASE"
+          mkdir -p ~/godot ~/.local/share/godot/export_templates
+          curl -fsSL -o /tmp/godot.zip "$base/Godot_v${GODOT_RELEASE}_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d ~/godot
+          mv ~/godot/"Godot_v${GODOT_RELEASE}_linux.x86_64" ~/godot/godot
+          curl -fsSL -o /tmp/templates.tpz "$base/Godot_v${GODOT_RELEASE}_export_templates.tpz"
+          unzip -q /tmp/templates.tpz -d /tmp/tpz
+          dest=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mv /tmp/tpz/templates "$dest"
+          # Keep only what the presets use (x86_64 desktop, universal macOS, no-threads web, Android
+          # APKs) so the cache stays small.
+          cd "$dest"
+          rm -f -- ios.zip android_source.zip ./*x86_32* ./*arm32* ./*arm64* ./web_dlink* web_debug.zip web_release.zip
+
+      - name: Add Godot to PATH
+        run: echo "$HOME/godot" >> "$GITHUB_PATH"
+
+      - name: Configure Android export
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          keytool -genkeypair -keystore ~/debug.keystore -storepass android -keypass android \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US" -noprompt
+          mkdir -p ~/.config/godot
+          cat > ~/.config/godot/editor_settings-4.7.tres <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME_17_X64"
+          export/android/debug_keystore = "$HOME/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > ~/release.keystore
+            echo "SIGN_ANDROID_RELEASE=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Stamp version
+        run: tools/release.sh stamp "${{ steps.version.outputs.version }}" "${{ github.run_number }}"
+
+      - name: Import project
+        run: godot --headless --path . --import
+
+      - name: Unit tests
+        run: make test
+
+      - name: Export desktop and web
+        run: make macos windows linux web
+
+      - name: Export Android
+        env:
+          GODOT_ANDROID_KEYSTORE_RELEASE_USER: ${{ secrets.ANDROID_KEYSTORE_USER }}
+          GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "${SIGN_ANDROID_RELEASE:-}" ]; then
+            export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$HOME/release.keystore"
+            make android-release
+          else
+            make android
+          fi
+
+      - name: Package
+        run: tools/release.sh package "${{ steps.version.outputs.version }}"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          flags=()
+          case "$VERSION" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "Mesh Pulse $VERSION" \
+            --generate-notes \
+            "${flags[@]}"

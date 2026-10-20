@@ -91,6 +91,20 @@ on `PATH` (or `GODOT=/path/to/godot`) with export templates installed.
 `MODE=debug make linux` makes debug exports. On the web, brokers must use `ws://` or `wss://`, and
 every HTTP source must allow CORS. The default Beacon, imagery and elevation hosts all do.
 
+## Releasing
+
+`.github/workflows/release.yml` tests, exports every platform and publishes a GitHub release with the
+archives and a `SHA256SUMS.txt`. Start it either way:
+
+- push a tag: `git tag v0.2.0 && git push origin v0.2.0`
+- or run **Release** from the Actions tab with a version; the workflow creates the `v<version>` tag.
+
+The version is stamped into each platform's metadata, and the build number is the workflow run
+number. Versions with a suffix (`0.2.0-beta.1`) are published as pre-releases. The Android APK is
+debug-signed unless the `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_USER` and
+`ANDROID_KEYSTORE_PASSWORD` repository secrets are set. `tools/release.sh` does the stamping and
+packaging and also runs locally.
+
 ## Tests
 
 ```sh

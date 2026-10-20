@@ -8,3 +8,4 @@
 .envrc
 /aws/
 .DS_Store
+/dist/
