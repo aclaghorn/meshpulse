@@ -45,6 +45,7 @@ var _is_3d := false
 var _stats_values := []
 
 var _loading: ColorRect
+var _loading_icon: TextureRect
 var _loading_title: Label
 var _loading_status: Label
 
@@ -179,7 +180,8 @@ func _ready() -> void:
 	_tooltip.add_child(_tooltip_label)
 	_root.add_child(_tooltip)
 
-	# Full-screen loading overlay, on top of everything while sources load.
+	# Full-screen loading overlay, on top of everything while sources load. The icon and wordmark
+	# are laid out like splash.png (tools/make_splash.gd) so the boot splash hands off seamlessly.
 	_loading = ColorRect.new()
 	_loading.color = UiTheme.BG
 	_loading.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -189,20 +191,40 @@ func _ready() -> void:
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_loading.add_child(center)
-	var loading_box := VBoxContainer.new()
-	loading_box.add_theme_constant_override("separation", 14)
-	center.add_child(loading_box)
+	var brand := VBoxContainer.new()
+	brand.add_theme_constant_override("separation", 22)
+	center.add_child(brand)
+	var icon := Image.new()
+	icon.load_svg_from_string(FileAccess.get_file_as_string("res://icon.svg"), 168.0 / 128.0)
+	_loading_icon = TextureRect.new()
+	_loading_icon.texture = ImageTexture.create_from_image(icon)
+	_loading_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_loading_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_loading_icon.custom_minimum_size = Vector2(168, 168)
+	_loading_icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	brand.add_child(_loading_icon)
 	_loading_title = UiTheme.label("MESH PULSE", 54, UiTheme.ACCENT)
 	_loading_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	loading_box.add_child(_loading_title)
+	brand.add_child(_loading_title)
+	# Status and progress hang below the centred brand block, leaving it where the splash put it.
+	var progress := VBoxContainer.new()
+	progress.add_theme_constant_override("separation", 14)
+	progress.anchor_left = 0.5
+	progress.anchor_right = 0.5
+	progress.anchor_top = 0.5
+	progress.anchor_bottom = 0.5
+	progress.offset_top = 160
+	progress.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_loading.add_child(progress)
 	_loading_status = UiTheme.label("", 16, UiTheme.MUTED)
 	_loading_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	loading_box.add_child(_loading_status)
+	progress.add_child(_loading_status)
 	var bar := ProgressBar.new()
 	bar.indeterminate = true
 	bar.show_percentage = false
 	bar.custom_minimum_size = Vector2(280, 10)
-	loading_box.add_child(bar)
+	bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	progress.add_child(bar)
 
 	UiScale.layout_changed.connect(_apply_layout)
 	get_viewport().size_changed.connect(func() -> void: _apply_layout.call_deferred(_compact))
@@ -242,6 +264,7 @@ func _apply_layout(compact: bool) -> void:
 	var width := _root.get_viewport_rect().size.x
 	_title.add_theme_font_size_override("font_size", 20 if compact else 26)
 	_loading_title.add_theme_font_size_override("font_size", 36 if compact else 54)
+	_loading_icon.custom_minimum_size = Vector2.ONE * (112 if compact else 168)
 	_set_stats_text()
 	_fullscreen_button.text = _fullscreen_label()
 	set_view_3d(_is_3d)

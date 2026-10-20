@@ -90,6 +90,9 @@ on `PATH` (or `GODOT=/path/to/godot`) with export templates installed.
 | `make android-release` | signed release APK using `GODOT_ANDROID_KEYSTORE_RELEASE_PATH/_USER/_PASSWORD` |
 | `make all` / `make clean` / `make test` | |
 
+The boot splash (`splash.png`, also the web loading image) is rendered from `icon.svg` in the app's
+font and colours. Regenerate it after changing the icon with `godot --path . -s tools/make_splash.gd`.
+
 `MODE=debug make linux` makes debug exports. On the web, brokers must use `ws://` or `wss://`, and
 every HTTP source must allow CORS. The default Beacon, imagery and elevation hosts all do.
 
