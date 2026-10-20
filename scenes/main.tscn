@@ -1,0 +1,34 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://scripts/camera/map_camera.gd" id="2_cam"]
+[ext_resource type="Script" path="res://scripts/map/terrain_map.gd" id="3_terrain"]
+[ext_resource type="Script" path="res://scripts/viz/node_markers.gd" id="4_markers"]
+[ext_resource type="Script" path="res://scripts/viz/packet_animator.gd" id="5_anim"]
+[ext_resource type="Script" path="res://scripts/net/packet_feed.gd" id="6_feed"]
+[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="7_hud"]
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+
+[node name="MapCamera" type="Camera3D" parent="."]
+current = true
+script = ExtResource("2_cam")
+
+[node name="TerrainMap" type="Node3D" parent="."]
+script = ExtResource("3_terrain")
+
+[node name="NodeMarkers" type="Node3D" parent="."]
+script = ExtResource("4_markers")
+
+[node name="PacketAnimator" type="Node3D" parent="." node_paths=PackedStringArray("markers")]
+script = ExtResource("5_anim")
+markers = NodePath("../NodeMarkers")
+
+[node name="PacketFeed" type="Node" parent="."]
+script = ExtResource("6_feed")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+script = ExtResource("7_hud")

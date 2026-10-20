@@ -1,0 +1,10 @@
+# Godot 4
+.godot/
+/android/
+*.translation
+/build/
+*.tmp
+
+.envrc
+/aws/
+.DS_Store
