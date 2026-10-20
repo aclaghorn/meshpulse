@@ -1,6 +1,7 @@
 extends Node3D
-## The live map: wires the packet feed through hop resolution into the animator, and connects
-## camera picking, the HUD and the environment.
+## The live map and the app's entry point. Loads nodes from the configured sources behind a loading
+## overlay (first launch, or after the sources changed), then wires the packet feed through hop
+## resolution into the animator. Command-line user arg (after `--`): --demo.
 
 @onready var camera: MapCamera = $MapCamera
 @onready var terrain: Node3D = $TerrainMap
@@ -15,17 +16,47 @@ var _stats_timer := 0.0
 
 
 func _ready() -> void:
-	Geo.vertical_scale = AppConfig.vertical_exaggeration
-	if not MeshData.origin_set:
-		MeshData.set_origin_from_nodes()
+	if "--demo" in OS.get_cmdline_user_args():
+		AppConfig.demo_mode = true
 	world_env.environment = _build_environment()
-	markers.rebuild()
+	_connect_signals()
+	if not MeshData.loaded:
+		# Nothing on the map can be placed until the nodes (and so the world origin) are known.
+		_set_map_running(false)
+		hud.show_loading("Loading nodes…")
+		var loader := SourceLoader.new()
+		add_child(loader)
+		loader.status.connect(hud.show_loading)
+		var warnings: Array[String] = await loader.load_nodes()
+		loader.queue_free()
+		for w in warnings:
+			hud.add_source_note("● " + w, UiTheme.BAD)
+		hud.hide_loading()
+	_start_map()
 
+
+func _set_map_running(running: bool) -> void:
+	for node: Node in [camera, terrain, markers, animator, feed]:
+		node.process_mode = Node.PROCESS_MODE_INHERIT if running else Node.PROCESS_MODE_DISABLED
+
+
+func _start_map() -> void:
+	Geo.vertical_scale = AppConfig.vertical_exaggeration
+	markers.rebuild()
 	var points: Array[Vector3] = []
 	for node in MeshData.located_nodes():
 		points.append(Geo.latlon_to_world(node.lat, node.lon))
 	camera.frame_points(points)
+	var beacons := AppConfig.beacons.filter(func(b: Dictionary) -> bool: return b.get("enabled", true))
+	if not beacons.is_empty():
+		hud.add_source_note("● Beacon — %d nodes" % MeshData.nodes.size(), UiTheme.ACCENT)
+	if AppConfig.demo_mode:
+		hud.add_source_note("● Simulated traffic", UiTheme.WARN)
+	_set_map_running(true)
+	feed.start()
 
+
+func _connect_signals() -> void:
 	camera.clicked.connect(_on_clicked)
 	camera.double_clicked.connect(_on_double_clicked)
 	camera.hovered.connect(_on_hovered)
@@ -38,13 +69,6 @@ func _ready() -> void:
 		_relay_counts[node.pubkey] = _relay_counts.get(node.pubkey, 0) + 1)
 	feed.observation.connect(_on_observation)
 	feed.broker_status_changed.connect(hud.set_broker_status)
-
-	var beacons := AppConfig.beacons.filter(func(b: Dictionary) -> bool: return b.get("enabled", true))
-	if not beacons.is_empty():
-		hud.add_source_note("● Beacon — %d nodes" % MeshData.nodes.size(), UiTheme.ACCENT)
-	if AppConfig.demo_mode:
-		hud.add_source_note("● Simulated traffic", UiTheme.WARN)
-	feed.start()
 
 
 func _process(delta: float) -> void:

@@ -1,6 +1,6 @@
 extends Control
-## Start-up screen: configure MQTT brokers and Beacon servers, then load the node directory and
-## launch the map. Command-line user args (after `--`): --autostart, --demo.
+## Sources screen, opened from the map: edit MQTT brokers, Beacon servers and options, then apply
+## (the map reloads from the new sources) or go back unchanged.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 
@@ -10,11 +10,8 @@ var _demo_check: CheckBox
 var _exaggeration: SpinBox
 var _excluded_iatas: LineEdit
 var _status: Label
-var _progress: ProgressBar
-var _launch_button: Button
-var _launching := false
-var _launch_anyway := false
-var _cmdline := OS.get_cmdline_user_args()
+var _apply_button: Button
+var _back_button: Button
 
 # Pieces the compact (phone) layout rearranges.
 var _margin: MarginContainer
@@ -30,8 +27,6 @@ func _ready() -> void:
 	_build()
 	UiScale.layout_changed.connect(_apply_layout)
 	_apply_layout(UiScale.compact)
-	if "--autostart" in _cmdline:
-		_launch.call_deferred()
 
 
 func _build() -> void:
@@ -57,7 +52,7 @@ func _build() -> void:
 
 	_title = UiTheme.label("MESH PULSE", 54, UiTheme.ACCENT)
 	root.add_child(_title)
-	var blurb := UiTheme.label("Live 3D view of MeshCore packets moving through the mesh. Configure your sources, then launch.", 16, UiTheme.MUTED)
+	var blurb := UiTheme.label("Where the live map gets its packets and nodes. Changes take effect when you apply them.", 16, UiTheme.MUTED)
 	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(blurb)
 
@@ -115,17 +110,18 @@ func _build() -> void:
 	_status.size_flags_horizontal = SIZE_EXPAND_FILL
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_footer.add_child(_status)
-	_progress = ProgressBar.new()
-	_progress.custom_minimum_size = Vector2(260, 22)
-	_progress.show_percentage = false
-	_progress.visible = false
-	_footer.add_child(_progress)
-	_launch_button = Button.new()
-	_launch_button.text = "LAUNCH"
-	_launch_button.custom_minimum_size = Vector2(160, 44)
-	_launch_button.add_theme_font_size_override("font_size", 18)
-	_launch_button.pressed.connect(_launch)
-	_footer.add_child(_launch_button)
+	_back_button = Button.new()
+	_back_button.text = "BACK TO MAP"
+	_back_button.tooltip_text = "Discard changes"
+	_back_button.custom_minimum_size = Vector2(160, 44)
+	_back_button.pressed.connect(_cancel)
+	_footer.add_child(_back_button)
+	_apply_button = Button.new()
+	_apply_button.text = "APPLY & OPEN MAP"
+	_apply_button.custom_minimum_size = Vector2(200, 44)
+	_apply_button.add_theme_font_size_override("font_size", 18)
+	_apply_button.pressed.connect(_apply)
+	_footer.add_child(_apply_button)
 
 
 ## Phones: one column, everything stacked and scrolling as a page. Desktop: two columns whose
@@ -141,8 +137,8 @@ func _apply_layout(compact: bool) -> void:
 		scroll.custom_minimum_size.y = 0 if compact else 240
 		scroll.size_flags_vertical = SIZE_FILL if compact else SIZE_EXPAND_FILL
 	_footer.vertical = compact
-	_progress.custom_minimum_size.x = 0 if compact else 260
-	_launch_button.size_flags_horizontal = SIZE_FILL if compact else SIZE_SHRINK_END
+	for button in [_back_button, _apply_button]:
+		button.size_flags_horizontal = SIZE_FILL if compact else SIZE_SHRINK_END
 
 
 func _section(parent: Control, heading: String, blurb: String, add_text: String, on_add: Callable) -> VBoxContainer:
@@ -252,17 +248,13 @@ func _set_status(text: String, color := UiTheme.MUTED) -> void:
 	_status.add_theme_color_override("font_color", color)
 
 
-func _launch() -> void:
-	if _launching:
-		return
+## Saves the sources and reopens the map, which reloads nodes from them.
+func _apply() -> void:
 	AppConfig.brokers = _collect(_broker_list)
 	AppConfig.beacons = _collect(_beacon_list)
 	AppConfig.demo_mode = _demo_check.button_pressed
 	AppConfig.vertical_exaggeration = _exaggeration.value
 	AppConfig.excluded_iatas = _excluded_iatas.text.strip_edges()
-	AppConfig.save_config()
-	if "--demo" in _cmdline:
-		AppConfig.demo_mode = true
 
 	var problems: Array[String] = []
 	var checker := MqttClient.new()
@@ -276,44 +268,12 @@ func _launch() -> void:
 		_set_status("\n".join(problems), UiTheme.BAD)
 		return
 
-	_launching = true
-	_launch_button.disabled = true
-	_progress.visible = true
-	_progress.indeterminate = true
+	AppConfig.save_config()
 	MeshData.clear()
+	get_tree().change_scene_to_file(MAIN_SCENE)
 
-	var warnings: Array[String] = []
-	var client := BeaconClient.new()
-	add_child(client)
-	for b in AppConfig.beacons:
-		if not b.get("enabled", true) or str(b.get("url", "")) == "":
-			continue
-		var label: String = b.get("name", "Beacon")
-		_set_status("Loading nodes from %s…" % label)
-		var on_progress := func(n: int) -> void: _set_status("Loading nodes from %s… %d" % [label, n])
-		client.progress.connect(on_progress)
-		var res: Dictionary = await client.fetch_nodes(b.url, b.get("iatas", ""))
-		client.progress.disconnect(on_progress)
-		for item in res.nodes:
-			if not AppConfig.is_node_excluded(item.get("iatas", [])):
-				MeshData.upsert_from_beacon(item)
-		if not res.ok:
-			warnings.append("%s: %s" % [label, res.error])
-	client.queue_free()
 
-	if MeshData.located_nodes().is_empty() and AppConfig.demo_mode:
-		MeshData.generate_synthetic()
-
-	if not warnings.is_empty() and not _launch_anyway and not "--autostart" in _cmdline:
-		_set_status("\n".join(warnings) + "\nFix the source or press LAUNCH ANYWAY.", UiTheme.WARN)
-		_launch_button.text = "LAUNCH ANYWAY"
-		_launch_button.disabled = false
-		_progress.visible = false
-		_launching = false
-		_launch_anyway = true
-		return
-
-	MeshData.set_origin_from_nodes()
-	_set_status("%d nodes loaded (%d with a location). Starting…" % [MeshData.nodes.size(), MeshData.located_nodes().size()], UiTheme.GOOD)
-	await get_tree().process_frame
+## Back to the map without saving; nodes already loaded are kept.
+func _cancel() -> void:
+	AppConfig.load_config()
 	get_tree().change_scene_to_file(MAIN_SCENE)

@@ -11,7 +11,9 @@ laser trails hopping node to node across satellite imagery draped over real terr
 godot --path .            # or open project.godot in the Godot 4.7 editor and press F5
 ```
 
-The setup screen lets you configure sources (saved to `user://meshpulse.cfg`):
+The app opens straight into the map and loads nodes from the saved sources (the defaults below on
+first run). **Sources…** on the map opens the sources screen; **Apply & open map** saves the changes
+to `user://meshpulse.cfg` and reloads the map, and **Back to map** discards them.
 
 - **MQTT brokers**: `mqtt://`, `mqtts://`, `ws://` or `wss://` URLs, a topic filter (default
   `meshcore/+/+/packets`) and optional credentials. Messages are expected in
@@ -24,7 +26,7 @@ The setup screen lets you configure sources (saved to `user://meshpulse.cfg`):
 
 Defaults point at `wss://mqtt.gomesh.dev` and `https://beacon.sierrame.sh/`.
 
-Command-line user args: `godot --path . -- --autostart --demo`.
+Command-line user arg: `godot --path . -- --demo` turns on demo traffic for that run.
 
 ## Controls
 

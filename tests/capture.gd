@@ -1,6 +1,6 @@
 extends SceneTree
-## Dev helper: runs the app windowed with the configured sources and saves screenshots of the setup screen,
-## the top-down map and a 3D close-up. Also checks screen picking round-trips on this display.
+## Dev helper: runs the app windowed with the configured sources and saves screenshots of the loading
+## overlay, the top-down map and a 3D close-up. Also checks screen picking round-trips on this display.
 ##   godot --path . -s tests/capture.gd -- --out=/some/dir
 
 var _out := "user://captures"
@@ -13,17 +13,15 @@ func _initialize() -> void:
 		if arg.begins_with("--out="):
 			_out = arg.trim_prefix("--out=")
 	DirAccess.make_dir_recursive_absolute(_out)
-	change_scene_to_file("res://scenes/setup_screen.tscn")
+	change_scene_to_file("res://scenes/main.tscn")
 
 
 func _process(delta: float) -> bool:
 	_t += delta
 	match _step:
 		0:
-			if _t > 1.5:
-				_shot("1_setup")
-				current_scene._launch_anyway = true
-				current_scene._launch()
+			if _t > 0.5:
+				_shot("1_loading")
 				_step = 1
 		1:
 			if _t > 14.0:

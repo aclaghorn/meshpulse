@@ -44,6 +44,10 @@ var _compact := false
 var _is_3d := false
 var _stats_values := []
 
+var _loading: ColorRect
+var _loading_title: Label
+var _loading_status: Label
+
 var _immersive := false
 ## Window mode changes are asynchronous (macOS animates them), so only treat "not fullscreen" as
 ## the user leaving once fullscreen has actually been reached.
@@ -175,9 +179,46 @@ func _ready() -> void:
 	_tooltip.add_child(_tooltip_label)
 	_root.add_child(_tooltip)
 
+	# Full-screen loading overlay, on top of everything while sources load.
+	_loading = ColorRect.new()
+	_loading.color = UiTheme.BG
+	_loading.mouse_filter = Control.MOUSE_FILTER_STOP
+	_loading.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_loading.visible = false
+	_root.add_child(_loading)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_loading.add_child(center)
+	var loading_box := VBoxContainer.new()
+	loading_box.add_theme_constant_override("separation", 14)
+	center.add_child(loading_box)
+	_loading_title = UiTheme.label("MESH PULSE", 54, UiTheme.ACCENT)
+	_loading_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loading_box.add_child(_loading_title)
+	_loading_status = UiTheme.label("", 16, UiTheme.MUTED)
+	_loading_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loading_box.add_child(_loading_status)
+	var bar := ProgressBar.new()
+	bar.indeterminate = true
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(280, 10)
+	loading_box.add_child(bar)
+
 	UiScale.layout_changed.connect(_apply_layout)
 	get_viewport().size_changed.connect(func() -> void: _apply_layout.call_deferred(_compact))
 	_apply_layout(UiScale.compact)
+
+
+func show_loading(text: String) -> void:
+	_loading_status.text = text
+	_loading.modulate.a = 1.0
+	_loading.visible = true
+
+
+func hide_loading() -> void:
+	var tween := create_tween()
+	tween.tween_property(_loading, "modulate:a", 0.0, 0.4)
+	tween.tween_callback(func() -> void: _loading.visible = false)
 
 
 func _new_panel() -> PanelContainer:
@@ -200,6 +241,7 @@ func _apply_layout(compact: bool) -> void:
 	var m := COMPACT_MARGIN if compact else MARGIN
 	var width := _root.get_viewport_rect().size.x
 	_title.add_theme_font_size_override("font_size", 20 if compact else 26)
+	_loading_title.add_theme_font_size_override("font_size", 36 if compact else 54)
 	_set_stats_text()
 	_fullscreen_button.text = _fullscreen_label()
 	set_view_3d(_is_3d)

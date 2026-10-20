@@ -8,6 +8,8 @@ const DEFAULT_ORIGIN := Vector2(47.6062, -122.3321)
 var nodes: Dictionary = {}  # pubkey -> MeshNode
 var _by_first_byte: Dictionary = {}  # "3a" -> Array[MeshNode]
 var origin_set := false
+## True once SourceLoader has filled the registry for the current sources; cleared to force a reload.
+var loaded := false
 var _changed_queued := false
 
 
@@ -15,6 +17,7 @@ func clear() -> void:
 	nodes.clear()
 	_by_first_byte.clear()
 	origin_set = false
+	loaded = false
 
 
 func find(pubkey: String) -> MeshNode:
