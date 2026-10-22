@@ -1,6 +1,7 @@
 class_name BeaconClient
 extends Node
-## Pulls the node directory from a MeshCore Beacon server (GET /api/v1/nodes, cursor paginated).
+## Pulls the node directory (GET /api/v1/nodes, cursor paginated) and the IATA region list
+## (GET /api/v1/iatas) from a MeshCore Beacon server.
 
 signal progress(loaded: int)
 
@@ -46,6 +47,29 @@ func fetch_nodes(base_url: String, iatas := "") -> Dictionary:
 		if page_cursor == "" and cursor < 0:
 			break
 	return {"ok": true, "nodes": nodes, "error": ""}
+
+
+## Returns {ok, iatas: Array[Dictionary], error}; each region is {iata, displayName, lat, lon},
+## with displayName, lat and lon possibly null.
+func fetch_iatas(base_url: String) -> Dictionary:
+	var res := await _get_json(api_base(base_url) + "/iatas")
+	if not res.ok:
+		return {"ok": false, "iatas": [], "error": res.error}
+	return {"ok": true, "iatas": parse_iatas(res.data), "error": ""}
+
+
+## Keeps well-formed entries, upper-cases codes and sorts by code.
+static func parse_iatas(data) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if not data is Array:
+		return out
+	for item in data:
+		if item is Dictionary and str(item.get("iata", "")).strip_edges() != "":
+			var region: Dictionary = item.duplicate()
+			region.iata = str(item.iata).strip_edges().to_upper()
+			out.append(region)
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a.iata < b.iata)
+	return out
 
 
 ## Accepts "https://host", "https://host/" or "https://host/api/v1".

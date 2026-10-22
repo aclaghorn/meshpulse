@@ -48,7 +48,11 @@ func _start_map() -> void:
 		points.append(Geo.latlon_to_world(node.lat, node.lon))
 	camera.frame_points(points)
 	var beacons := AppConfig.beacons.filter(func(b: Dictionary) -> bool: return b.get("enabled", true))
-	if not beacons.is_empty():
+	if not AppConfig.has_regions():
+		hud.add_source_note("● No regions selected", UiTheme.WARN)
+		if not AppConfig.demo_mode:
+			hud.show_region_prompt()
+	elif not beacons.is_empty():
 		hud.add_source_note("● Beacon — %d nodes" % MeshData.nodes.size(), UiTheme.ACCENT)
 	if AppConfig.demo_mode:
 		hud.add_source_note("● Simulated traffic", UiTheme.WARN)
@@ -62,7 +66,8 @@ func _connect_signals() -> void:
 	camera.hovered.connect(_on_hovered)
 	camera.view_mode_changed.connect(hud.set_view_3d)
 	hud.view_3d_requested.connect(camera.set_3d)
-	hud.setup_requested.connect(func() -> void: get_tree().change_scene_to_file("res://scenes/setup_screen.tscn"))
+	hud.settings_requested.connect(func() -> void: get_tree().change_scene_to_file("res://scenes/settings_screen.tscn"))
+	hud.regions_requested.connect(func() -> void: get_tree().change_scene_to_file("res://scenes/region_screen.tscn"))
 	hud.fly_to_requested.connect(func(node: MeshNode) -> void: camera.fly_to(markers.world_of(node), 4.0))
 	hud.selection_cleared.connect(func() -> void: markers.set_selected(null))
 	animator.hop_reached.connect(func(node: MeshNode, _c: Color) -> void:

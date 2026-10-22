@@ -1,23 +1,28 @@
 extends SceneTree
 ## Dev helper: runs the app windowed with the configured sources and saves screenshots of the loading
 ## overlay, the top-down map and a 3D close-up. Also checks screen picking round-trips on this display.
-##   godot --path . -s tests/capture.gd -- --out=/some/dir
+## With --regions it shoots the region picker instead, at desktop and phone sizes (nothing is saved).
+##   godot --path . -s tests/capture.gd -- --out=/some/dir [--regions]
 
 var _out := "user://captures"
 var _t := 0.0
 var _step := 0
+var _regions := false
 
 
 func _initialize() -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--out="):
 			_out = arg.trim_prefix("--out=")
+	_regions = "--regions" in OS.get_cmdline_user_args()
 	DirAccess.make_dir_recursive_absolute(_out)
-	change_scene_to_file("res://scenes/main.tscn")
+	change_scene_to_file("res://scenes/region_screen.tscn" if _regions else "res://scenes/main.tscn")
 
 
 func _process(delta: float) -> bool:
 	_t += delta
+	if _regions:
+		return _process_regions()
 	match _step:
 		0:
 			if _t > 0.5:
@@ -39,6 +44,29 @@ func _process(delta: float) -> bool:
 		2:
 			if _t > 26.0:
 				_shot("3_3d")
+				_step = 3
+		3:
+			return true
+	return false
+
+
+func _process_regions() -> bool:
+	match _step:
+		0:
+			if _t > 1.0:
+				# Tick two regions the way a click on the list or map would.
+				for code in ["SEA", "PDX"]:
+					current_scene._toggle(code, true)
+				current_scene._map.focus("SEA")
+				_step = 1
+		1:
+			if _t > 9.0:
+				_shot("regions_desktop")
+				DisplayServer.window_set_size(Vector2i(400, 860))
+				_step = 2
+		2:
+			if _t > 14.0:
+				_shot("regions_phone")
 				_step = 3
 		3:
 			return true

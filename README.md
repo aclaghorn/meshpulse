@@ -11,20 +11,31 @@ laser trails hopping node to node across satellite imagery draped over real terr
 godot --path .            # or open project.godot in the Godot 4.7 editor and press F5
 ```
 
-The app opens straight into the map and loads nodes from the saved sources (the defaults below on
-first run). **Sources…** on the map opens the sources screen; **Apply & open map** saves the changes
-to `user://meshpulse.cfg` and reloads the map, and **Back to map** discards them.
+The app opens straight into the map and loads nodes and traffic for the selected regions.
+**Regions…** on the map opens the region picker and **Settings…** opens the settings screen. On
+either, **Apply & open map** saves the changes to `user://meshpulse.cfg` and reloads the map, and
+**Back** discards them.
 
-- **MQTT brokers**: `mqtt://`, `mqtts://`, `ws://` or `wss://` URLs, a topic filter (default
-  `meshcore/+/+/packets`) and optional credentials. Messages are expected in
+- **Regions**: up to 10 IATA regions, picked on a map or from a searchable list (both stay in sync).
+  The list comes from the first Beacon server's `/api/v1/iatas`. Nothing loads until a region is
+  picked; the map shows a prompt instead.
+- **Settings**: map detail (imagery sharpness), terrain exaggeration and simulated demo traffic (fake
+  packets over the loaded nodes, or over a synthetic mesh when no Beacon is reachable).
+
+Sources aren't editable in the app; they live under `[sources]` in `user://meshpulse.cfg`:
+
+- **Beacon servers** (default MeshMapper, `https://analyzer.meshmapper.net/`): nodes come from
+  `/api/v1/nodes?iatas=…`. With `live` on, packets stream from the server's public WebSocket
+  (`wss://host/ws`), scoped to the selected regions; no account needed. The feed sends decoded headers
+  and paths, not raw bytes.
+- **MQTT brokers** (default GoMesh, `wss://mqtt.gomesh.dev`, switched off): `mqtt://`, `mqtts://`,
+  `ws://` or `wss://` URLs, a topic (default `meshcore/{iata}/+/packets`, subscribed once per selected
+  region) and optional credentials. Messages are expected in
   [meshcore-packet-capture](https://github.com/agessaman/meshcore-packet-capture) JSON format.
-- **Beacon servers**: base URL (`/api/v1` is appended) and an optional IATA filter like `SFO,OAK`.
-- **Exclude IATAs**: comma-separated IATA codes (wildcards allowed, default `MCI,CAK,MCO,Y*`) whose
-  packets are ignored. Beacon nodes heard only in those regions are skipped.
-- **Simulated demo traffic**: fake packets over the loaded nodes, or over a synthetic mesh when no
-  Beacon is reachable.
+  MeshMapper's and LetsMesh's brokers only let operator-issued subscriber accounts subscribe, so use
+  the Beacon live feed for those.
 
-Defaults point at `wss://mqtt.gomesh.dev` and `https://beacon.sierrame.sh/`.
+Configs from older versions are migrated to these defaults on first load; custom sources are kept.
 
 Command-line user arg: `godot --path . -- --demo` turns on demo traffic for that run.
 
@@ -113,11 +124,12 @@ packaging and also runs locally.
 ## Tests
 
 ```sh
-godot --headless --path . -s tests/run_tests.gd          # unit tests (decoder, MQTT framing, resolver, geo)
+godot --headless --path . -s tests/run_tests.gd          # unit tests (decoder, MQTT framing, resolver, geo, regions, Beacon feed)
 
 python3 tools/fake_broker.py --port 18830 --count 4 --interval 0.2 &
 godot --headless --path . -s tests/mqtt_live_test.gd     # MQTT client against the fake broker
 godot --headless --path . -s tests/mqtt_live_test.gd -- --url=wss://mqtt.gomesh.dev --user=example_user --pass=password123 --min=3
 
 godot --path . -s tests/capture.gd -- --out=/tmp/shots   # windowed run that saves screenshots
+godot --path . -s tests/capture.gd -- --out=/tmp/shots --regions   # region picker, desktop and phone
 ```

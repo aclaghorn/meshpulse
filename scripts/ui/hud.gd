@@ -6,7 +6,8 @@ extends CanvasLayer
 ## toolbar opens the legend, log and sources one at a time as a drawer above it.
 
 signal view_3d_requested(enabled: bool)
-signal setup_requested
+signal settings_requested
+signal regions_requested
 signal fly_to_requested(node: MeshNode)
 signal selection_cleared
 
@@ -82,10 +83,15 @@ func _ready() -> void:
 	var buttons := HBoxContainer.new()
 	source_box.add_child(buttons)
 	buttons.add_child(_new_view_button())
-	var setup := Button.new()
-	setup.text = "Sources…"
-	setup.pressed.connect(func() -> void: setup_requested.emit())
-	buttons.add_child(setup)
+	var settings := Button.new()
+	settings.text = "Settings…"
+	settings.pressed.connect(func() -> void: settings_requested.emit())
+	buttons.add_child(settings)
+	var regions := Button.new()
+	regions.text = "Regions…"
+	regions.tooltip_text = "Selected: %s" % (", ".join(AppConfig.selected_iatas) if AppConfig.has_regions() else "none")
+	regions.pressed.connect(func() -> void: regions_requested.emit())
+	buttons.add_child(regions)
 
 	# Legend doubling as packet-type filters.
 	_legend_panel = _new_panel()
@@ -412,6 +418,31 @@ func set_broker_status(index: int, broker_name: String, state: MqttClient.State,
 	label.add_theme_color_override("font_color", colors[state])
 	if state == MqttClient.State.ERROR and detail != "":
 		label.text += "\n   " + detail
+
+
+## Centred call to action shown while no regions are selected, so nothing is loading.
+func show_region_prompt() -> void:
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(center)
+	var panel := _new_panel()
+	panel.get_parent().remove_child(panel)
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 12)
+	panel.add_child(box)
+	box.add_child(UiTheme.label("NO REGIONS SELECTED", 18, UiTheme.ACCENT))
+	var blurb := UiTheme.label("Pick up to %d IATA regions to load their nodes and live traffic." % AppConfig.MAX_IATAS, 15, UiTheme.MUTED)
+	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	blurb.custom_minimum_size.x = 280
+	box.add_child(blurb)
+	var pick := Button.new()
+	pick.text = "PICK YOUR REGIONS"
+	pick.custom_minimum_size = Vector2(220, 44)
+	pick.add_theme_font_size_override("font_size", 18)
+	pick.pressed.connect(func() -> void: regions_requested.emit())
+	box.add_child(pick)
 
 
 func add_source_note(text: String, color := UiTheme.MUTED) -> void:

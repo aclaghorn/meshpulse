@@ -1,7 +1,7 @@
 class_name SourceLoader
 extends Node
-## Loads the node directory from every enabled Beacon server into MeshData (skipping nodes only heard
-## in excluded IATAs), falls back to a synthetic mesh in demo mode, and centres the world on the result.
+## Loads the selected regions' nodes from every enabled Beacon server into MeshData, falls back to a
+## synthetic mesh in demo mode, and centres the world on the result.
 
 signal status(text: String)
 
@@ -13,17 +13,18 @@ func load_nodes() -> Array[String]:
 	var client := BeaconClient.new()
 	add_child(client)
 	for b in AppConfig.beacons:
+		if not AppConfig.has_regions():
+			break
 		if not b.get("enabled", true) or str(b.get("url", "")) == "":
 			continue
 		var label: String = b.get("name", "Beacon")
 		status.emit("Loading nodes from %s…" % label)
 		var on_progress := func(n: int) -> void: status.emit("Loading nodes from %s… %d" % [label, n])
 		client.progress.connect(on_progress)
-		var res: Dictionary = await client.fetch_nodes(b.url, b.get("iatas", ""))
+		var res: Dictionary = await client.fetch_nodes(b.url, AppConfig.iatas_query())
 		client.progress.disconnect(on_progress)
 		for item in res.nodes:
-			if not AppConfig.is_node_excluded(item.get("iatas", [])):
-				MeshData.upsert_from_beacon(item)
+			MeshData.upsert_from_beacon(item)
 		if not res.ok:
 			warnings.append("%s: %s" % [label, res.error])
 	client.queue_free()

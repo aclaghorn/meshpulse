@@ -7,6 +7,7 @@
 #   make serve-web                                   serve build/web on http://localhost:8060
 #   make test                                        headless unit tests
 #   make web-sync                                    build web, upload to S3 and invalidate CloudFront
+#   make web-sync-dev                                the same, to the dev preview site (dev.meshpulse.sierrame.sh)
 #
 # Desktop and web builds are release exports; set MODE=debug for debug builds.
 
@@ -20,7 +21,7 @@ AWS         := aws --profile $(AWS_PROFILE) --region us-east-1
 
 EXPORT = $(GODOT) --headless --path . --export-$(MODE)
 
-.PHONY: all macos windows linux web android android-release install-android serve-web web-sync test import clean
+.PHONY: all macos windows linux web android android-release install-android serve-web web-sync web-sync-dev test import clean
 
 all: macos windows linux web android
 
@@ -63,13 +64,15 @@ serve-web: web
 	cd $(BUILD)/web && python3 -m http.server 8060
 
 # Export file names never change, so browsers are told to revalidate every time (cheap 304s via
-# ETag); CloudFront keeps edge copies until the invalidation below.
-web-sync: web
+# ETag); CloudFront keeps edge copies until the invalidation below. web-sync-dev targets the dev
+# preview site, whose stack outputs carry a Dev prefix.
+web-sync web-sync-dev: web
 	@set -e; \
+	site=$(if $(filter web-sync-dev,$@),Dev,); \
 	output() { $(AWS) cloudformation describe-stacks --stack-name $(STACK) \
-		--query "Stacks[0].Outputs[?OutputKey=='$$1'].OutputValue" --output text; }; \
+		--query "Stacks[0].Outputs[?OutputKey=='$$site$$1'].OutputValue" --output text; }; \
 	bucket=$$(output BucketName); dist=$$(output DistributionId); \
-	test -n "$$bucket" -a -n "$$dist" || { echo "CloudFormation stack $(STACK) not found"; exit 1; }; \
+	test -n "$$bucket" -a -n "$$dist" || { echo "No $${site}BucketName/$${site}DistributionId outputs in CloudFormation stack $(STACK)"; exit 1; }; \
 	echo "Uploading $(BUILD)/web to s3://$$bucket"; \
 	$(AWS) s3 sync $(BUILD)/web s3://$$bucket --delete --only-show-errors --exclude "*.wasm" \
 		--cache-control "public, max-age=0, must-revalidate"; \
@@ -77,7 +80,8 @@ web-sync: web
 		--content-type application/wasm --cache-control "public, max-age=0, must-revalidate"; \
 	echo "Invalidating CloudFront $$dist"; \
 	$(AWS) cloudfront create-invalidation --distribution-id $$dist --paths "/*" \
-		--query "Invalidation.[Id,Status]" --output text
+		--query "Invalidation.[Id,Status]" --output text; \
+	echo "Live at $$(output SiteUrl)"
 
 test:
 	$(GODOT) --headless --path . -s tests/run_tests.gd

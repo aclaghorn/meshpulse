@@ -17,7 +17,10 @@ func _initialize() -> void:
 	_test_mqtt_url_parsing()
 	_test_geo_round_trip()
 	_test_resolver()
-	_test_iata_filter()
+	_test_region_selection()
+	_test_config_migration()
+	_test_parse_iatas()
+	_test_beacon_feed_packet()
 	# Needs a camera inside the scene tree, which only exists once the main loop runs.
 	_finish.call_deferred()
 
@@ -259,16 +262,87 @@ func _test_touch_gestures() -> void:
 	cam.free()
 
 
-func _test_iata_filter() -> void:
+func _test_region_selection() -> void:
 	var config: GDScript = load("res://scripts/core/app_config.gd")
-	var patterns := "MCI,CAK,MCO,Y*"
-	for code in ["MCI", "cak", "MCO", "YVR", "YYJ", "Y"]:
-		check(config.iata_matches(code, patterns), "excluded: " + code)
-	for code in ["SFO", "OAK", "SYD", "", "MCIX"]:
-		check(not config.iata_matches(code, patterns), "kept: " + code)
 	var app = config.new()
-	app.excluded_iatas = patterns
-	check(app.is_node_excluded([{"iata": "YVR"}, {"iata": "MCO"}]), "node only heard in excluded IATAs is dropped")
-	check(not app.is_node_excluded([{"iata": "YVR"}, {"iata": "SFO"}]), "node also heard elsewhere is kept")
-	check(not app.is_node_excluded([]), "node with no IATA history is kept")
+	var many: PackedStringArray = config.normalize_iatas(["AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH", "III", "JJJ", "KKK", "LLL"])
+	eq(many.size(), 10, "regions are capped at MAX_IATAS (10)")
+	eq(many[9], "JJJ", "the first MAX_IATAS regions are kept")
+	app.selected_iatas = config.normalize_iatas(["sea", "PDX", "SEA", " sjc ", "BOS", "DEN"])
+	eq(app.selected_iatas, PackedStringArray(["SEA", "PDX", "SJC", "BOS", "DEN"]), "regions are upper-cased and de-duplicated")
+	eq(app.iatas_query(), "SEA,PDX,SJC,BOS,DEN", "regions join into the iatas query")
+	eq(app.expand_topics("meshcore/{iata}/+/packets"), PackedStringArray([
+		"meshcore/SEA/+/packets", "meshcore/PDX/+/packets", "meshcore/SJC/+/packets",
+		"meshcore/BOS/+/packets", "meshcore/DEN/+/packets"]), "{iata} topic expands once per region")
+	eq(app.expand_topics(" custom/# , meshcore/{iata}/x/status"), PackedStringArray([
+		"custom/#", "meshcore/SEA/x/status", "meshcore/PDX/x/status", "meshcore/SJC/x/status",
+		"meshcore/BOS/x/status", "meshcore/DEN/x/status"]), "topics without {iata} pass through")
+	app.selected_iatas = PackedStringArray()
+	check(not app.has_regions(), "no regions selected")
+	eq(app.expand_topics("meshcore/{iata}/+/packets"), PackedStringArray(), "no regions, no region topics")
 	app.free()
+
+
+func _test_config_migration() -> void:
+	var config: GDScript = load("res://scripts/core/app_config.gd")
+	var app = config.new()
+	app.beacons.assign([{"enabled": true, "name": "Sierra Mesh Beacon", "url": "https://beacon.sierrame.sh/", "iatas": "SEA"}])
+	app.brokers.assign([
+		{"enabled": true, "name": "GoMesh", "url": "wss://mqtt.gomesh.dev", "topic": "meshcore/+/+/packets"},
+		{"enabled": true, "name": "Mine", "url": "mqtt://localhost", "topic": "custom/#"},
+	])
+	app._migrate()
+	eq(app.beacons.size(), 1, "Sierra beacon is replaced, not duplicated")
+	eq(app.beacons[0].url, config.MESHMAPPER_URL, "Sierra beacon moves to MeshMapper")
+	check(app.beacons[0].live and not app.beacons[0].has("iatas"), "migrated beacon streams live and drops its IATA filter")
+	check(not app.brokers[0].enabled, "GoMesh is switched off")
+	eq(app.brokers[0].topic, "meshcore/{iata}/+/packets", "GoMesh subscribes per region")
+	check(app.brokers[1].enabled and app.brokers[1].topic == "custom/#", "custom broker is left alone")
+
+	app.beacons.assign([{"enabled": true, "name": "Own", "url": "https://beacon.example.com", "iatas": ""}])
+	app._migrate()
+	eq(app.beacons.size(), 2, "MeshMapper is added alongside a custom beacon")
+	eq(app.beacons[0].url, config.MESHMAPPER_URL, "MeshMapper goes first")
+	check(not app.beacons[1].live, "custom beacon doesn't get a live feed")
+	app.free()
+
+
+func _test_parse_iatas() -> void:
+	var client: GDScript = load("res://scripts/net/beacon_client.gd")
+	var regions: Array[Dictionary] = client.parse_iatas([
+		{"iata": "sea", "displayName": "Seattle", "lat": 47.6, "lon": -122.3},
+		{"iata": "AAB", "displayName": null, "lat": null, "lon": null},
+		{"iata": ""}, "junk",
+	])
+	eq(regions.size(), 2, "malformed regions are skipped")
+	eq(regions[0].iata, "AAB", "regions sort by code")
+	eq(regions[1].iata, "SEA", "codes are upper-cased")
+	eq(client.parse_iatas({"error": "nope"}).size(), 0, "non-array body gives no regions")
+	var feed: GDScript = load("res://scripts/net/beacon_feed.gd")
+	eq(feed.feed_url("https://analyzer.meshmapper.net/"), "wss://analyzer.meshmapper.net/ws", "https Beacon -> wss feed")
+	eq(feed.feed_url("http://localhost:8080/api/v1"), "ws://localhost:8080/ws", "http Beacon -> ws feed, path dropped")
+	eq(feed.feed_url("beacon.example.com"), "", "URL without scheme is rejected")
+
+
+func _test_beacon_feed_packet() -> void:
+	var feed: GDScript = load("res://scripts/net/beacon_feed.gd")
+	# Captured from wss://analyzer.meshmapper.net/ws (trimmed).
+	var event: Dictionary = JSON.parse_string('''{"packetHash":"D5E09F0EC8F62944","packet":{"payloadType":4,"payloadTypeName":"ADVERT","routeType":1,"routeTypeName":"FLOOD","isFirstObservation":false,"observationCount":5,"summary":"GUCI - BonGucci"},"observation":{"observerId":"a0d8004f-d44c-4364-882b-6f22ece2f402","observerName":"BOS - Eastie MQTT","observerPublicKey":"8E4DFF403FC5E1A27EA1E1D3E74C35786E47D57063DCE27AE06219C9B5929679","iata":"bos","heardAt":1792543695568,"rssi":-74,"snr":11.75,"sourceBroker":"mqtt1","pathBytes":"757910c9a82a7f42ea57","pathLength":{"raw":"45","hashSize":2,"hopCount":5},"propagationTimeMs":0,"resolvedPath":null,"resolvedSource":{"confidence":"high","nodes":[{"id":"dd0427ee","name":"GUCI - BonGucci","publicKey":"D18F0D1497CE181C9B0C92929507F165D2A2B3858A3795AD186B5DDE52F1B998","latitude":42.285,"longitude":-71.345}]}}}''')
+	var pkt: Dictionary = feed.to_packet(event)
+	eq(pkt.payload_type, PacketDecoder.Payload.ADVERT, "feed payload type")
+	eq(pkt.type_name, "ADVERT", "feed type name")
+	eq(pkt.route, PacketDecoder.Route.FLOOD, "feed route")
+	eq(pkt.hops, ["7579", "10C9", "A82A", "7F42", "EA57"], "feed path splits into 2-byte hops")
+	eq(pkt.hash, "d5e09f0ec8f62944", "feed packet hash is the dedupe key")
+	eq(pkt.iata, "BOS", "feed IATA")
+	eq(pkt.observer, "8e4dff403fc5e1a27ea1e1d3e74c35786e47d57063dce27ae06219c9b5929679", "feed observer key, lower-cased")
+	eq(pkt.observer_name, "BOS - Eastie MQTT", "feed observer name")
+	check(is_equal_approx(pkt.snr, 11.75) and pkt.rssi == -74, "feed signal")
+	eq(pkt.origin_pubkey, "d18f0d1497ce181c9b0c92929507f165d2a2b3858a3795ad186b5dde52f1b998", "high-confidence source becomes the origin")
+
+	event.observation.resolvedSource.confidence = "ambiguous"
+	eq(feed.to_packet(event).origin_pubkey, "", "ambiguous source is not trusted")
+	event.packet.payloadType = PacketDecoder.Payload.TRACE
+	var trace: Dictionary = feed.to_packet(event)
+	check(trace.hops.is_empty() and trace.trace_completed == 0, "TRACE path bytes (SNRs) aren't read as hops")
+	eq(feed.to_packet({"packet": {}}), {}, "event without hash or observation is dropped")
